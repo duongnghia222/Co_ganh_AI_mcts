@@ -1,4 +1,5 @@
 import numpy as np
+import time
 
 """
     ganh -> vay
@@ -173,8 +174,16 @@ class game:
         return win_player
 
     def get_all_possible_moves(self, player):
-        chessmen = self.find_all_chessmen(player)
         possible_moves = dict()
+        traps = self.check_trap()
+        if traps:
+            old_position = self.get_old_position()
+            moves = move_lookup_table[old_position]
+            for m in moves:
+                if get_board_at_tuple(self.board, m) == self.player:
+                    possible_moves[m] = [old_position]
+                    return possible_moves
+        chessmen = self.find_all_chessmen(player)
         for c in chessmen:
             all_position = move_lookup_table[c]
             possible_moves[c] = []
@@ -193,10 +202,10 @@ class game:
 
 
 class MCTS:
-    def __init__(self, iterations=100, c=2.0, tree=None, board=None, player=None):
+    def __init__(self, iterations=100, c=2.0, tree=None, prev_board=None, board=None, player=None):
         self.iterations = iterations
         self.c = c
-        self.game = game(None, board, player)
+        self.game = game(prev_board, board, player)
         self.total_n = 0
         if tree is None:
             self.tree = self.set_tree()
@@ -210,7 +219,7 @@ class MCTS:
                           'parent': None,
                           'n': 0,
                           'w': 0,
-                          'q': None}}
+                          'ucb': None}}
         return tree
 
     def ucb_value(self, w, n):
@@ -251,16 +260,17 @@ class MCTS:
             for position in possible_moves:
                 directions = possible_moves[position]
                 for d in directions:
-                    child = game(None, current_game.board, player)
+                    temp_game = game(current_game.prev_board, current_game.board, player)
+                    temp_game.update_board((position, d))
                     gen_id = id_generator_from_move(position, d)
-                    child.update_board((position, d))
                     child_id = leaf_id + (gen_id,)
                     children.append(child_id)
+                    child = game(current_game.board, temp_game.board, -1*player)
                     self.tree[child_id] = {
                         'game': child,
                         'children': [],
                         'parent': leaf_id,
-                        'n': 0, 'w': 0, 'q': 0
+                        'n': 0, 'w': 0, 'ucb': 0
                     }
                     self.tree[leaf_id]['children'].append(gen_id)
             rand_idx = np.random.randint(low=0, high=len(children), size=1)
@@ -272,35 +282,38 @@ class MCTS:
         self.total_n += 1
         current_game = self.tree[child_node_id]['game']
         move_threshold = 100
+        prev_board = current_game.prev_board
         board = current_game.board
         player = current_game.player
-        simulation_game = game(None, board, player)
-        simulation_game_player = simulation_game.player
-        while move_threshold > 0 or not simulation_game.check_win():
-            possible_moves = simulation_game.get_all_possible_moves(simulation_game_player)
+        simulation_game = game(prev_board, board, player)
+        while not simulation_game.check_win():
+            if move_threshold < 0:
+                break
+            possible_moves = simulation_game.get_all_possible_moves(simulation_game.player)
             # get random move
             rand_idx = np.random.randint(low=0, high=len(possible_moves), size=1)[0]
             from_position = list(possible_moves)[rand_idx]
             rand_idx = np.random.randint(low=0, high=len(possible_moves[from_position]), size=1)[0]
             to_position = possible_moves[from_position][rand_idx]
             my_move = (from_position, to_position)
+            temp_board = [x[:] for x in simulation_game.board]
             simulation_game.update_board(my_move)
-            player *= -1
+            simulation_game.prev_board = temp_board
+            simulation_game.player *= -1
             move_threshold -= 1
         return simulation_game.number_of_chessmen(player)
 
     def backpropagation(self, child_node_id, value):
-        player = self.tree[child_node_id]['game'].player
         node_id = child_node_id
         while True:
             self.tree[node_id]['n'] += 1
             self.tree[node_id]['w'] += value
-            self.tree[node_id]['q'] += self.tree[node_id]['w'] / self.tree[node_id]['n']
+            self.tree[node_id]['ucb'] = self.ucb_value(self.tree[node_id]['w'], self.tree[node_id]['n'])
             parent_id = self.tree[node_id]['parent']
             if parent_id == (0, ):
                 self.tree[node_id]['n'] += 1
                 self.tree[node_id]['w'] += value
-                self.tree[node_id]['q'] += self.tree[node_id]['w'] / self.tree[node_id]['n']
+                self.tree[node_id]['ucb'] = self.ucb_value(self.tree[node_id]['w'], self.tree[node_id]['n'])
                 break
             else:
                 node_id = parent_id
@@ -311,15 +324,14 @@ class MCTS:
             child_node_id = self.expansion(leaf_id)
             value = self.simulation(child_node_id)
             self.backpropagation(child_node_id, value)
-
         nodes = self.tree[(0, )]['children']
-        max_q = -999
+        max_ucb = -999
         for n in nodes:
-            q = self.tree[(0, ) + (n, )]['q']
-            if q > max_q:
-                max_q = q
+            ucb = self.tree[(0, ) + (n, )]['ucb']
+            if ucb > max_ucb:
+                max_ucb = ucb
                 best_node = n
-        print(best_node)
+        print("best: ", self.tree[(0, ) + (best_node,)]['ucb'])
         return get_move_from_gen_id(best_node)
 
 
@@ -395,30 +407,30 @@ def move(prev_board, board, player, remain_time_x, remain_time_o):
     if traps:
         moves = move_lookup_table[old_position]
         for m in moves:
-            if get_board_at_tuple(ai_game.board, m) == -1:
+            if get_board_at_tuple(ai_game.board, m) == ai:
                 result = (m, old_position)
         if result:
             ai_game.update_board(result)  # update board
             return result
 
-    solver = MCTS(iterations=100, c=2.0, tree=None, board=ai_game.board, player=ai)
+    solver = MCTS(iterations=200, c=2.0, tree=None, prev_board=prev_board, board=ai_game.board, player=ai)
     return solver.solver()
 
 
 def test():
     prev_board = [
-        [1, 0, 0, 0, 1],
-        [-1, -1, 1, 1, 1],
-        [1, 0, 0, -1, 0],
+        [-1, 0, 0, -1, -1],
+        [-1, -1, 1, 0, 1],
+        [-1, 0, 0, -1, 0],
         [0, 1, 0, 0, -1],
-        [1, -1, -1, -1, -1]]
+        [-1, -1, -1, -1, -1]]
 
     board = [
-        [1, 0, 0, 0, 1],
-        [-1, -1, 1, 1, 1],
-        [1, 1, 0, -1, 0],
+        [-1, 0, 0, -1, -1],
+        [-1, -1, 1, 0, 1],
+        [-1, 1, 0, -1, 0],
         [0, 0, 0, 0, -1],
-        [1, -1, -1, -1, -1]]
+        [-1, -1, -1, -1, -1]]
     #
     res = move(prev_board, board, None, None, None)
     print(res)
