@@ -202,7 +202,6 @@ class MCTS:
             self.tree = self.set_tree()
         else:
             self.tree = tree
-        #self.tree = self.set_tree() if self.tree is None else self.tree = tree
 
     def set_tree(self):
         root_id = (0,)
@@ -252,9 +251,9 @@ class MCTS:
             for position in possible_moves:
                 directions = possible_moves[position]
                 for d in directions:
+                    child = game(None, current_game.board, player)
                     gen_id = id_generator_from_move(position, d)
-                    current_game.update_board((position, d))
-                    child = game(None, current_game.board, -1*player)
+                    child.update_board((position, d))
                     child_id = leaf_id + (gen_id,)
                     children.append(child_id)
                     self.tree[child_id] = {
@@ -266,25 +265,29 @@ class MCTS:
                     self.tree[leaf_id]['children'].append(gen_id)
             rand_idx = np.random.randint(low=0, high=len(children), size=1)
             child_node_id = children[rand_idx[0]]
+
         return child_node_id
 
     def simulation(self, child_node_id):
         self.total_n += 1
         current_game = self.tree[child_node_id]['game']
-        player = current_game.player
         move_threshold = 100
-        while not current_game.check_win() or move_threshold:
-            possible_moves = current_game.get_all_possible_moves(player)
+        board = current_game.board
+        player = current_game.player
+        simulation_game = game(None, board, player)
+        simulation_game_player = simulation_game.player
+        while move_threshold > 0 or not simulation_game.check_win():
+            possible_moves = simulation_game.get_all_possible_moves(simulation_game_player)
             # get random move
             rand_idx = np.random.randint(low=0, high=len(possible_moves), size=1)[0]
             from_position = list(possible_moves)[rand_idx]
             rand_idx = np.random.randint(low=0, high=len(possible_moves[from_position]), size=1)[0]
             to_position = possible_moves[from_position][rand_idx]
             my_move = (from_position, to_position)
-            current_game.update_board(my_move)
+            simulation_game.update_board(my_move)
             player *= -1
             move_threshold -= 1
-        return current_game.number_of_chessmen(player)
+        return simulation_game.number_of_chessmen(player)
 
     def backpropagation(self, child_node_id, value):
         player = self.tree[child_node_id]['game'].player
@@ -307,7 +310,7 @@ class MCTS:
             leaf_id = self.selection()
             child_node_id = self.expansion(leaf_id)
             value = self.simulation(child_node_id)
-            self.backprop(child_node_id, value)
+            self.backpropagation(child_node_id, value)
 
         nodes = self.tree[(0, )]['children']
         max_q = -999
@@ -316,6 +319,7 @@ class MCTS:
             if q > max_q:
                 max_q = q
                 best_node = n
+        print(best_node)
         return get_move_from_gen_id(best_node)
 
 
@@ -323,7 +327,7 @@ def get_move_from_gen_id(gen_id):
     direction = gen_id.lstrip('0123456789')
     position = int(gen_id[:-len(direction)])
     x = position//5
-    y = position - x
+    y = position - x*5
     from_position = (x, y)
     to_position = None
     if direction == 'ul':
@@ -397,20 +401,20 @@ def move(prev_board, board, player, remain_time_x, remain_time_o):
             ai_game.update_board(result)  # update board
             return result
 
-    solver = MCTS(iterations=5, c=2.0, tree=None, board=ai_game.board, player=ai)
+    solver = MCTS(iterations=100, c=2.0, tree=None, board=ai_game.board, player=ai)
     return solver.solver()
 
 
 def test():
     prev_board = [
-        [1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 1],
         [-1, -1, 1, 1, 1],
         [1, 0, 0, -1, 0],
         [0, 1, 0, 0, -1],
         [1, -1, -1, -1, -1]]
 
     board = [
-        [1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 1],
         [-1, -1, 1, 1, 1],
         [1, 1, 0, -1, 0],
         [0, 0, 0, 0, -1],
