@@ -40,16 +40,16 @@ symmetric_lookup_table = {
 
 move_lookup_table = {
     (0, 1): [(0, 0), (0, 2), (1, 1)],
-    (0, 2): [(0, 1), (0, 3), (1, 2)],
+    (0, 2): [(0, 1), (0, 3), (1, 2), (1, 1), (1, 3)],
     (0, 3): [(0, 2), (0, 4), (1, 3)],
     (1, 0): [(0, 0), (2, 0), (1, 1)],
-    (2, 0): [(1, 0), (3, 0), (2, 1)],
+    (2, 0): [(1, 0), (3, 0), (2, 1), (1, 1), (3, 1)],
     (3, 0): [(2, 0), (4, 0), (3, 1)],
     (4, 1): [(4, 0), (4, 2), (3, 1)],
-    (4, 2): [(4, 1), (4, 3), (3, 2)],
+    (4, 2): [(4, 1), (4, 3), (3, 2), (3, 3), (3, 1)],
     (4, 3): [(4, 2), (4, 4), (3, 3)],
     (3, 4): [(2, 4), (4, 4), (3, 3)],
-    (2, 4): [(1, 4), (3, 4), (2, 3)],
+    (2, 4): [(1, 4), (3, 4), (2, 3), (3, 3), (1, 3)],
     (1, 4): [(0, 4), (2, 4), (1, 3)],
     (1, 1): [(0, 1), (2, 1), (0, 2), (2, 0), (1, 2), (1, 0), (2, 2), (0, 0)],
     (1, 3): [(0, 3), (2, 3), (0, 4), (2, 2), (1, 4), (1, 2), (2, 4), (0, 2)],
@@ -258,8 +258,8 @@ class MCTS:
         if not winner:
             children = []
             for position in possible_moves:
-                directions = possible_moves[position]
-                for d in directions:
+                to_position = possible_moves[position]
+                for d in to_position:
                     temp_game = game(current_game.prev_board, current_game.board, player)
                     temp_game.update_board((position, d))
                     gen_id = id_generator_from_move(position, d)
@@ -275,13 +275,12 @@ class MCTS:
                     self.tree[leaf_id]['children'].append(gen_id)
             rand_idx = np.random.randint(low=0, high=len(children), size=1)
             child_node_id = children[rand_idx[0]]
-
         return child_node_id
 
     def simulation(self, child_node_id):
         self.total_n += 1
         current_game = self.tree[child_node_id]['game']
-        move_threshold = 100
+        move_threshold = 50
         prev_board = current_game.prev_board
         board = current_game.board
         player = current_game.player
@@ -290,18 +289,31 @@ class MCTS:
             if move_threshold < 0:
                 break
             possible_moves = simulation_game.get_all_possible_moves(simulation_game.player)
-            # get random move
-            rand_idx = np.random.randint(low=0, high=len(possible_moves), size=1)[0]
-            from_position = list(possible_moves)[rand_idx]
-            rand_idx = np.random.randint(low=0, high=len(possible_moves[from_position]), size=1)[0]
-            to_position = possible_moves[from_position][rand_idx]
-            my_move = (from_position, to_position)
+            found_ganh_move = False
+            for position in possible_moves:
+                to_position = possible_moves[position]
+                for d in to_position:
+                    ganh_position = symmetric_lookup_table[d]
+                    for gp in ganh_position:
+                        if get_board_at_tuple(simulation_game.board, gp[0]) == -1*simulation_game.player and \
+                                get_board_at_tuple(simulation_game.board, gp[1]) == -1 * simulation_game.player:
+                            my_move = (position, d)
+                            found_ganh_move = True
+            if not found_ganh_move:
+                # get random move
+                rand_idx = np.random.randint(low=0, high=len(possible_moves), size=1)[0]
+                from_position = list(possible_moves)[rand_idx]
+                rand_idx = np.random.randint(low=0, high=len(possible_moves[from_position]), size=1)[0]
+                to_position = possible_moves[from_position][rand_idx]
+                my_move = (from_position, to_position)
             temp_board = [x[:] for x in simulation_game.board]
             simulation_game.update_board(my_move)
             simulation_game.prev_board = temp_board
             simulation_game.player *= -1
             move_threshold -= 1
-        return simulation_game.number_of_chessmen(player)
+        if simulation_game.check_win() == current_game.player:
+            return 32 + move_threshold
+        return simulation_game.number_of_chessmen(player) + move_threshold
 
     def backpropagation(self, child_node_id, value):
         node_id = child_node_id
@@ -413,7 +425,7 @@ def move(prev_board, board, player, remain_time_x, remain_time_o):
             ai_game.update_board(result)  # update board
             return result
 
-    solver = MCTS(iterations=200, c=2.0, tree=None, prev_board=prev_board, board=ai_game.board, player=ai)
+    solver = MCTS(iterations=10, c=2.0, tree=None, prev_board=prev_board, board=ai_game.board, player=ai)
     return solver.solver()
 
 
