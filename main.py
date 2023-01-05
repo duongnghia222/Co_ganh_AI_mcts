@@ -226,6 +226,9 @@ class MCTS:
         exploitation_value = w / n
         exploration_value = np.sqrt(np.log(self.total_n) / n)
         ucb_value = exploitation_value + self.c * exploration_value
+        print("explore:", exploration_value, ' w  ', w, '  n ', n)
+        print('exploi: ', exploitation_value, 'total_n', self.total_n)
+        print('ucb', ucb_value)
         return ucb_value
 
     def selection(self):
@@ -239,7 +242,9 @@ class MCTS:
                     action = self.tree[node_id]['children'][i]
                     child_id = node_id + (action,)
                     w = self.tree[child_id]['w']
-                    n = self.tree[child_id]['n'] if self.tree[child_id]['n'] != 0 else 1e-4
+                    n = self.tree[child_id]['n']
+                    if n == 0:
+                        return child_id
                     ucb_value = self.ucb_value(w, n)
                     if ucb_value > max_ucb:
                         max_ucb = ucb_value
@@ -312,26 +317,29 @@ class MCTS:
             simulation_game.player *= -1
             move_threshold -= 1
         if simulation_game.check_win() == current_game.player:
-            return 32 + move_threshold
-        return simulation_game.number_of_chessmen(player) + move_threshold
+            return 1
+        else:
+            return 0
+        # return simulation_game.number_of_chessmen(player)*0.0625 + move_threshold*0.01
 
     def backpropagation(self, child_node_id, value):
         node_id = child_node_id
         while True:
             self.tree[node_id]['n'] += 1
             self.tree[node_id]['w'] += value
-            self.tree[node_id]['ucb'] = self.ucb_value(self.tree[node_id]['w'], self.tree[node_id]['n'])
+            self.tree[node_id]['ucb'] = self.tree[node_id]['w'] / self.tree[node_id]['n']
             parent_id = self.tree[node_id]['parent']
             if parent_id == (0, ):
-                self.tree[node_id]['n'] += 1
-                self.tree[node_id]['w'] += value
-                self.tree[node_id]['ucb'] = self.ucb_value(self.tree[node_id]['w'], self.tree[node_id]['n'])
+                self.tree[parent_id]['n'] += 1
+                self.tree[parent_id]['w'] += value
+                self.tree[parent_id]['ucb'] = self.tree[parent_id]['w'] / self.tree[parent_id]['n']
                 break
             else:
                 node_id = parent_id
 
     def solver(self):
         for i in range(self.iterations):
+            print('---- new iteration -------')
             leaf_id = self.selection()
             child_node_id = self.expansion(leaf_id)
             value = self.simulation(child_node_id)
@@ -340,6 +348,7 @@ class MCTS:
         max_ucb = -999
         for n in nodes:
             ucb = self.tree[(0, ) + (n, )]['ucb']
+            print('----node ucb:', ucb)
             if ucb > max_ucb:
                 max_ucb = ucb
                 best_node = n
@@ -425,23 +434,23 @@ def move(prev_board, board, player, remain_time_x, remain_time_o):
             ai_game.update_board(result)  # update board
             return result
 
-    solver = MCTS(iterations=10, c=2.0, tree=None, prev_board=prev_board, board=ai_game.board, player=ai)
+    solver = MCTS(iterations=1000, c=2.0, tree=None, prev_board=prev_board, board=ai_game.board, player=ai)
     return solver.solver()
 
 
 def test():
     prev_board = [
-        [-1, 0, 0, -1, -1],
-        [-1, -1, 1, 0, 1],
-        [-1, 0, 0, -1, 0],
-        [0, 1, 0, 0, -1],
+        [1, 0, 0, 0, -1],
+        [0, 0, 0, 0, 1],
+        [-1, -1, 1, 0, 0],
+        [-1, -1, -1, -1, -1],
         [-1, -1, -1, -1, -1]]
 
     board = [
-        [-1, 0, 0, -1, -1],
-        [-1, -1, 1, 0, 1],
-        [-1, 1, 0, -1, 0],
-        [0, 0, 0, 0, -1],
+        [1, 0, 0, 0, -1],
+        [0, 0, 0, 1, 0],
+        [-1, -1, 1, 0, 0],
+        [-1, -1, -1, -1, -1],
         [-1, -1, -1, -1, -1]]
     #
     res = move(prev_board, board, None, None, None)

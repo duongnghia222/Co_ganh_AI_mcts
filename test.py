@@ -118,9 +118,17 @@ move_lookup_table = {
 # res = np.subtract(x1, x2)
 # print(res)
 
+#
+# s = '1u'
+# direction = s.lstrip('0123456789')
+# print(type(direction))
+# position = s[:-len(direction)]
+# print(type(int(position)))
 
-s = '1u'
-direction = s.lstrip('0123456789')
-print(type(direction))
-position = s[:-len(direction)]
-print(type(int(position)))
+# x = 0;
+# while True:
+#     while True:
+#         x+=1
+#         print(x)
+#         if x == 10000:
+#             break
